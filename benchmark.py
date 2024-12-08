@@ -18,31 +18,37 @@ class Message(BaseModel):
 
 class OllamaResponse(BaseModel):
     model: str
-    created_at: datetime
+    created_at: datetime = Field(default_factory=datetime.now)
     message: Message
-    done: bool
-    total_duration: int
+    done: bool = True
+    total_duration: int = 0
     load_duration: int = 0
-    prompt_eval_count: int = Field(-1, validate_default=True)
-    prompt_eval_duration: int
-    eval_count: int
-    eval_duration: int
+    prompt_eval_count: int = Field(0, validate_default=True)
+    prompt_eval_duration: int = 0
+    eval_count: int = 0
+    eval_duration: int = 0
 
-    @field_validator("prompt_eval_count")
     @classmethod
-    def validate_prompt_eval_count(cls, value: int) -> int:
-        if value == -1:
-            print(
-                "\nWarning: prompt token count was not provided, potentially due to prompt caching. For more info, see https://github.com/ollama/ollama/issues/2068\n"
-            )
-            return 0  # Set default value
-        return value
+    def from_chat_response(cls, response):
+        return cls(
+            model=response.model,
+            message=Message(
+                role=response.message.role,
+                content=response.message.content
+            ),
+            # Set reasonable defaults for missing fields
+            total_duration=getattr(response, 'total_duration', 0),
+            load_duration=getattr(response, 'load_duration', 0),
+            prompt_eval_count=getattr(response, 'prompt_eval_count', 0),
+            prompt_eval_duration=getattr(response, 'prompt_eval_duration', 0),
+            eval_count=getattr(response, 'eval_count', 0),
+            eval_duration=getattr(response, 'eval_duration', 0),
+        )
 
 
 def run_benchmark(
     model_name: str, prompt: str, verbose: bool
 ) -> OllamaResponse:
-
     last_element = None
 
     if verbose:
@@ -57,7 +63,7 @@ def run_benchmark(
             stream=True,
         )
         for chunk in stream:
-            print(chunk["message"]["content"], end="", flush=True)
+            print(chunk.message.content, end="", flush=True)
             last_element = chunk
     else:
         last_element = ollama.chat(
@@ -74,10 +80,7 @@ def run_benchmark(
         print("System Error: No response received from ollama")
         return None
 
-    # with open("data/ollama/ollama_res.json", "w") as outfile:
-    #     outfile.write(json.dumps(last_element, indent=4))
-
-    return OllamaResponse.model_validate(last_element)
+    return OllamaResponse.from_chat_response(last_element)
 
 
 def nanosec_to_sec(nanosec):
@@ -145,8 +148,16 @@ def average_stats(responses: List[OllamaResponse]):
 
 
 def get_benchmark_models(skip_models: List[str] = []) -> List[str]:
-    models = ollama.list().get("models", [])
-    model_names = [model["name"] for model in models]
+    response = ollama.list()
+    models = response.get("models", [])
+    # The model information is now stored in the 'name' field directly
+    model_names = []
+    for model in models:
+        # Handle both old and new response formats
+        model_name = model.get("name", model.get("model", ""))
+        if model_name:
+            model_names.append(model_name)
+            
     if len(skip_models) > 0:
         model_names = [
             model for model in model_names if model not in skip_models
