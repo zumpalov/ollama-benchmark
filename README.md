@@ -57,7 +57,7 @@ Follow these instructions to set up and run benchmarks on your system.
 
    ```bash
    git clone https://github.com/zumpalov/ollama-benchmark.git
-   cd llm-benchmark
+   cd ollama-benchmark
    ```
 
 2. **Create a virtual environment**
